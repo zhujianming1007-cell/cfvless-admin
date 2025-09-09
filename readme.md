@@ -50,7 +50,7 @@
 
    **方法一：直接拖拽文件（推荐）**
 
-   - 将以下 2 个文件直接拖拽到上传区域：
+   - 将以下 2 个文件放到一个目录里后，把目录拖放到上传区域：
      - `index.html`（主页面）
      - `_worker.js`（后端逻辑）
 
@@ -85,161 +85,32 @@
 1. **进入数据库控制台**：
 
    - 点击刚创建的 `subscription-db` 数据库
-   - 选择 **控制台** 标签
+   - 选择右上角 **expolore data**
 
-2. **执行初始化 SQL**：
+2. **执行数据库初始化脚本**：
 
-   **注意**：Cloudflare D1 控制台无法一次性执行长脚本，需要分段执行。请按以下步骤操作：
+   - 在项目根目录找到 `d1_init_single.sql` 文件
+   - 打开该文件，复制全部 SQL 语句内容
+   - 粘贴到 D1 控制台的查询编辑器中
+   - 点击右下角 **Run** 按钮旁边的下拉箭头
+   - 选择 **Run all statements** 执行所有语句
+   - 等待执行完成，系统会显示成功提示
 
-   **第一步：创建表结构**
+3. **验证数据库创建结果**：
 
-   - 复制以下代码到 SQL 输入框：
+   - 初始化成功后，在查询编辑器中执行以下 SQL 命令：
 
-   ```sql
-   CREATE TABLE IF NOT EXISTS users (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       username TEXT UNIQUE NOT NULL,
-       hashed_password TEXT NOT NULL,
-       user_uuid TEXT UNIQUE,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-   );
-   ```
-
-   - 点击 **执行** 按钮
-   - 重复执行以下每个表的创建语句：
-
-   **第二步：创建订阅源表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS subscription_sources (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       user_id INTEGER NOT NULL,
-       source_name TEXT NOT NULL,
-       source_url TEXT NOT NULL,
-       fetch_status TEXT DEFAULT 'pending',
-       node_count INTEGER DEFAULT 0,
-       last_fetch_at DATETIME,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-   );
-   ```
-
-   **第三步：创建节点池表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS node_pool (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       user_id INTEGER NOT NULL,
-       source_id INTEGER,
-       node_url TEXT NOT NULL,
-       node_hash TEXT,
-       status TEXT DEFAULT 'untested',
-       last_test_at DATETIME,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-       FOREIGN KEY (source_id) REFERENCES subscription_sources (id) ON DELETE CASCADE,
-       UNIQUE(user_id, node_hash)
-   );
-   ```
-
-   **第四步：创建订阅表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS subscriptions (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       user_id INTEGER NOT NULL,
-       uuid TEXT UNIQUE NOT NULL,
-       node_data_base64 TEXT,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-   );
-   ```
-
-   **第五步：创建标签表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS tags (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       user_id INTEGER NOT NULL,
-       tag_name TEXT NOT NULL,
-       description TEXT DEFAULT '',
-       tag_uuid TEXT UNIQUE NOT NULL,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-       UNIQUE(user_id, tag_name)
-   );
-   ```
-
-   **第六步：创建节点标签映射表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS node_tag_map (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       node_id INTEGER NOT NULL,
-       tag_id INTEGER NOT NULL,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (node_id) REFERENCES node_pool (id) ON DELETE CASCADE,
-       FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE,
-       UNIQUE(node_id, tag_id)
-   );
-   ```
-
-   **第七步：创建源节点配置表**
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS source_node_configs (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       user_id INTEGER NOT NULL,
-       config_name TEXT NOT NULL,
-       node_type TEXT NOT NULL CHECK (node_type IN ('nat64', 'proxyip')),
-       config_data TEXT NOT NULL,
-       generated_node TEXT NOT NULL,
-       is_default BOOLEAN DEFAULT FALSE,
-       enabled BOOLEAN DEFAULT TRUE,
-       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-   );
-   ```
-
-   **第八步：创建索引**
-
-   - 执行以下索引创建语句（可以一次性执行多个索引）：
-
-   ```sql
-   CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-   CREATE INDEX IF NOT EXISTS idx_users_uuid ON users(user_uuid);
-   CREATE INDEX IF NOT EXISTS idx_subscription_sources_user_id ON subscription_sources(user_id);
-   CREATE INDEX IF NOT EXISTS idx_subscription_sources_status ON subscription_sources(fetch_status);
-   CREATE INDEX IF NOT EXISTS idx_node_pool_user_id ON node_pool(user_id);
-   CREATE INDEX IF NOT EXISTS idx_node_pool_source_id ON node_pool(source_id);
-   CREATE INDEX IF NOT EXISTS idx_node_pool_status ON node_pool(status);
-   CREATE INDEX IF NOT EXISTS idx_node_pool_hash ON node_pool(node_hash);
-   CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
-   CREATE INDEX IF NOT EXISTS idx_subscriptions_uuid ON subscriptions(uuid);
-   CREATE INDEX IF NOT EXISTS idx_tags_user_id ON tags(user_id);
-   CREATE INDEX IF NOT EXISTS idx_tags_uuid ON tags(tag_uuid);
-   CREATE INDEX IF NOT EXISTS idx_node_tag_map_node_id ON node_tag_map(node_id);
-   CREATE INDEX IF NOT EXISTS idx_node_tag_map_tag_id ON node_tag_map(tag_id);
-   CREATE INDEX IF NOT EXISTS idx_source_node_configs_user_id ON source_node_configs(user_id);
-   CREATE INDEX IF NOT EXISTS idx_source_node_configs_type ON source_node_configs(node_type);
-   CREATE INDEX IF NOT EXISTS idx_source_node_configs_default ON source_node_configs(is_default);
-   ```
-
-3. **验证创建结果**：
-   - 执行成功后，可以运行以下命令查看表：
    ```sql
    SELECT name FROM sqlite_master WHERE type='table';
    ```
-   - 应该看到 7 个表被创建：
-     - `users` - 用户表
+
+   - 执行结果应显示以下 7 个核心数据表：
+     - `users` - 用户信息表
      - `subscription_sources` - 订阅源表
      - `node_pool` - 节点池表
-     - `subscriptions` - 订阅表
+     - `subscriptions` - 订阅记录表
      - `tags` - 标签表
-     - `node_tag_map` - 节点标签映射表
+     - `node_tag_map` - 节点标签关联表
      - `source_node_configs` - 源节点配置表
 
 ### 步骤 3：创建 KV 命名空间
